@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python -c ' *)"
+      "Bash(python -c ' *)",
+      "Bash(python -m py_compile core/multipart_detector.py core/scanner.py gui/scan_tab.py gui/main_window.py main.py)"
     ]
   }
 }

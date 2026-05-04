@@ -1,12 +1,11 @@
 import customtkinter as ctk
 from gui.scan_tab import ScanTab
-
+from gui.settings_tab import SettingsTab
 
 _PLACEHOLDER_TABS = [
-    ("Каталог",    "Раздел «Каталог» будет доступен после этапа 3."),
-    ("Дубликаты",  "Раздел «Дубликаты» будет доступен после этапа 5."),
-    ("Структура",  "Раздел «Структура» будет доступен после этапа 6."),
-    ("Настройки",  "Раздел «Настройки API» будет доступен после этапа 2."),
+    ("Каталог",   "Раздел «Каталог» будет доступен после этапа 3."),
+    ("Дубликаты", "Раздел «Дубликаты» будет доступен после этапа 5."),
+    ("Структура", "Раздел «Структура» будет доступен после этапа 6."),
 ]
 
 
@@ -20,19 +19,17 @@ class MainWindow(ctk.CTk):
         self._tabs = ctk.CTkTabview(self)
         self._tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # Stage-1 functional tab
         self._tabs.add("Сканирование")
-        self._scan_tab = ScanTab(self._tabs.tab("Сканирование"))
-        self._scan_tab.pack(fill="both", expand=True)
+        ScanTab(self._tabs.tab("Сканирование")).pack(fill="both", expand=True)
 
-        # Placeholder tabs
         for name, hint in _PLACEHOLDER_TABS:
             self._tabs.add(name)
             ctk.CTkLabel(
-                self._tabs.tab(name),
-                text=hint,
-                text_color="gray50",
-                font=ctk.CTkFont(size=14),
+                self._tabs.tab(name), text=hint,
+                text_color="gray50", font=ctk.CTkFont(size=14),
             ).place(relx=0.5, rely=0.5, anchor="center")
+
+        self._tabs.add("Настройки")
+        SettingsTab(self._tabs.tab("Настройки")).pack(fill="both", expand=True)
 
         self._tabs.set("Сканирование")

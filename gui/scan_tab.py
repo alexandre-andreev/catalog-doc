@@ -140,13 +140,13 @@ class ScanTab(ctk.CTkFrame):
         tree.heading("group",     text="Группа",       anchor="center")
         tree.heading("directory", text="Каталог",      anchor="w")
 
-        tree.column("name",      width=260, minwidth=120, stretch=True)
+        tree.column("name",      width=280, minwidth=120, stretch=False)
         tree.column("ext",       width=65,  minwidth=50,  anchor="center", stretch=False)
         tree.column("size_mb",   width=90,  minwidth=70,  anchor="e",      stretch=False)
         tree.column("modified",  width=130, minwidth=100,                  stretch=False)
         tree.column("sha256",    width=130, minwidth=80,                   stretch=False)
         tree.column("group",     width=80,  minwidth=60,  anchor="center", stretch=False)
-        tree.column("directory", width=320, minwidth=150, stretch=True)
+        tree.column("directory", width=520, minwidth=150, stretch=False)
 
         # multipart row highlight: warm amber on dark
         tree.tag_configure("multipart", background="#3a2200", foreground="#f0c060")

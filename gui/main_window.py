@@ -1,12 +1,10 @@
 import customtkinter as ctk
 from gui.scan_tab import ScanTab
+from gui.catalog_tab import CatalogTab
+from gui.duplicates_tab import DuplicatesTab
+from gui.structure_tab import StructureTab
+from gui.summary_tab import SummaryTab
 from gui.settings_tab import SettingsTab
-
-_PLACEHOLDER_TABS = [
-    ("Каталог",   "Раздел «Каталог» будет доступен после этапа 3."),
-    ("Дубликаты", "Раздел «Дубликаты» будет доступен после этапа 5."),
-    ("Структура", "Раздел «Структура» будет доступен после этапа 6."),
-]
 
 
 class MainWindow(ctk.CTk):
@@ -20,16 +18,39 @@ class MainWindow(ctk.CTk):
         self._tabs.pack(fill="both", expand=True, padx=10, pady=10)
 
         self._tabs.add("Сканирование")
-        ScanTab(self._tabs.tab("Сканирование")).pack(fill="both", expand=True)
+        self._scan_tab = ScanTab(self._tabs.tab("Сканирование"))
+        self._scan_tab.pack(fill="both", expand=True)
 
-        for name, hint in _PLACEHOLDER_TABS:
-            self._tabs.add(name)
-            ctk.CTkLabel(
-                self._tabs.tab(name), text=hint,
-                text_color="gray50", font=ctk.CTkFont(size=14),
-            ).place(relx=0.5, rely=0.5, anchor="center")
+        self._tabs.add("Каталог")
+        self._catalog_tab = CatalogTab(
+            self._tabs.tab("Каталог"),
+            get_files=self._scan_tab.get_all_items,
+            get_scan_root=self._scan_tab.get_scan_root,
+        )
+        self._catalog_tab.pack(fill="both", expand=True)
+
+        self._tabs.add("Дубликаты")
+        DuplicatesTab(
+            self._tabs.tab("Дубликаты"),
+            get_files=self._scan_tab.get_files,
+        ).pack(fill="both", expand=True)
+
+        self._tabs.add("Структура")
+        StructureTab(
+            self._tabs.tab("Структура"),
+            get_files=self._scan_tab.get_all_items,
+        ).pack(fill="both", expand=True)
+
+        self._tabs.add("Саммари")
+        SummaryTab(
+            self._tabs.tab("Саммари"),
+            get_files=self._scan_tab.get_files,
+        ).pack(fill="both", expand=True)
 
         self._tabs.add("Настройки")
-        SettingsTab(self._tabs.tab("Настройки")).pack(fill="both", expand=True)
+        SettingsTab(
+            self._tabs.tab("Настройки"),
+            on_taxonomy_reload=self._catalog_tab.reload_taxonomy,
+        ).pack(fill="both", expand=True)
 
         self._tabs.set("Сканирование")

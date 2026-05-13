@@ -3,7 +3,7 @@ import queue
 import tkinter as tk
 from tkinter import ttk, filedialog
 import customtkinter as ctk
-from core.scanner import Scanner, FileInfo
+from core.scanner import Scanner, FileInfo, MediaDirInfo
 from core.multipart_detector import detect_multipart_groups
 
 _MULTIPART_WARNING = (
@@ -17,6 +17,7 @@ class ScanTab(ctk.CTkFrame):
         super().__init__(parent, fg_color="transparent")
         self._scanner = Scanner()
         self._files: list[FileInfo] = []
+        self._media_dirs: list[MediaDirInfo] = []
         self._path_to_iid: dict[str, str] = {}   # full_path -> treeview iid
         self._queue: queue.Queue = queue.Queue()
         self._scan_thread: threading.Thread | None = None
@@ -132,13 +133,13 @@ class ScanTab(ctk.CTkFrame):
         tree = ttk.Treeview(parent, columns=cols, show="headings",
                             style="DA.Treeview", selectmode="browse")
 
-        tree.heading("name",      text="Имя файла",    anchor="w")
-        tree.heading("ext",       text="Формат",       anchor="center")
-        tree.heading("size_mb",   text="Размер, МБ",   anchor="e")
-        tree.heading("modified",  text="Изменён",      anchor="w")
-        tree.heading("sha256",    text="SHA-256",      anchor="w")
-        tree.heading("group",     text="Группа",       anchor="center")
-        tree.heading("directory", text="Каталог",      anchor="w")
+        tree.heading("name",      text="Имя файла / папки", anchor="w")
+        tree.heading("ext",       text="Формат",            anchor="center")
+        tree.heading("size_mb",   text="Размер, МБ",        anchor="e")
+        tree.heading("modified",  text="Изменён",           anchor="w")
+        tree.heading("sha256",    text="SHA-256",           anchor="w")
+        tree.heading("group",     text="Группа",            anchor="center")
+        tree.heading("directory", text="Каталог",           anchor="w")
 
         tree.column("name",      width=280, minwidth=120, stretch=False)
         tree.column("ext",       width=65,  minwidth=50,  anchor="center", stretch=False)
@@ -148,8 +149,8 @@ class ScanTab(ctk.CTkFrame):
         tree.column("group",     width=80,  minwidth=60,  anchor="center", stretch=False)
         tree.column("directory", width=520, minwidth=150, stretch=False)
 
-        # multipart row highlight: warm amber on dark
-        tree.tag_configure("multipart", background="#3a2200", foreground="#f0c060")
+        tree.tag_configure("multipart",  background="#3a2200", foreground="#f0c060")
+        tree.tag_configure("media_dir",  background="#1a2a1a", foreground="#80d080")
 
         vsb = ttk.Scrollbar(parent, orient="vertical",   command=tree.yview)
         hsb = ttk.Scrollbar(parent, orient="horizontal", command=tree.xview)
@@ -177,6 +178,7 @@ class ScanTab(ctk.CTkFrame):
             return
 
         self._files.clear()
+        self._media_dirs.clear()
         self._path_to_iid.clear()
         self._errors.clear()
         for item in self._tree.get_children():
@@ -197,13 +199,24 @@ class ScanTab(ctk.CTkFrame):
         self._scan_thread.start()
 
     def _run_scan(self, root: str, compute_hashes: bool):
+        # Phase 1: scan document files
         self._scanner.scan(
             root,
             compute_hashes=compute_hashes,
             on_progress=lambda cur, tot, fp: self._queue.put(("progress", cur, tot, fp)),
             on_file_found=lambda info: self._queue.put(("file", info)),
-            on_done=lambda results: self._queue.put(("done", results)),
+            on_done=lambda results: self._queue.put(("files_done", results)),
             on_error=lambda fp, err: self._queue.put(("error", fp, err)),
+        )
+        if self._scanner.is_stopped:
+            self._queue.put(("done",))
+            return
+        # Phase 2: scan media directories
+        self._queue.put(("media_scan_start",))
+        self._scanner.scan_media_dirs(
+            root,
+            on_found=lambda info: self._queue.put(("media_found", info)),
+            on_done=lambda results: self._queue.put(("done",)),
         )
 
     def _stop_scan(self):
@@ -222,7 +235,7 @@ class ScanTab(ctk.CTkFrame):
                 if kind == "progress":
                     _, cur, tot, fp = msg
                     if tot:
-                        self._progress.set(cur / tot)
+                        self._progress.set(cur / tot * 0.9)  # 0–90% for file scan
                     short = fp if len(fp) <= 80 else "..." + fp[-77:]
                     self._status_label.configure(text=f"{cur}/{tot}  {short}")
 
@@ -230,23 +243,41 @@ class ScanTab(ctk.CTkFrame):
                     info: FileInfo = msg[1]
                     self._files.append(info)
                     self._insert_row(info)
-                    total_mb = sum(f.size_mb for f in self._files)
                     self._stats_label.configure(
-                        text=f"{len(self._files)} файлов  |  {total_mb:.1f} МБ"
+                        text=f"{len(self._files)} файлов  |  "
+                             f"{sum(f.size_mb for f in self._files):.1f} МБ"
+                    )
+
+                elif kind == "files_done":
+                    results: list[FileInfo] = msg[1]
+                    self._apply_multipart(results)
+
+                elif kind == "media_scan_start":
+                    self._status_label.configure(
+                        text="Поиск медиа-каталогов (курсов)…")
+
+                elif kind == "media_found":
+                    info: MediaDirInfo = msg[1]
+                    self._media_dirs.append(info)
+                    self._insert_media_row(info)
+                    self._stats_label.configure(
+                        text=f"{len(self._files)} файлов  |  "
+                             f"{len(self._media_dirs)} медиа-папок  |  "
+                             f"{sum(f.size_mb for f in self._files):.1f} МБ"
                     )
 
                 elif kind == "done":
-                    results: list[FileInfo] = msg[1]
                     self._progress.set(1.0)
                     stopped = self._scanner.is_stopped
                     verb = "Остановлено" if stopped else "Завершено"
                     errs = f"  |  ошибок: {len(self._errors)}" if self._errors else ""
+                    media_str = (f"  |  медиа-папок: {len(self._media_dirs)}"
+                                 if self._media_dirs else "")
                     self._status_label.configure(
-                        text=f"{verb}. Найдено: {len(results)} файлов{errs}."
+                        text=f"{verb}. Файлов: {len(self._files)}{media_str}{errs}."
                     )
                     self._start_btn.configure(state="normal")
                     self._stop_btn.configure(state="disabled")
-                    self._apply_multipart(results)
 
                 elif kind == "error":
                     _, fp, err = msg
@@ -264,7 +295,6 @@ class ScanTab(ctk.CTkFrame):
         if not groups:
             return
 
-        # Annotate FileInfo objects and update treeview rows
         for info in self._files:
             gid = groups.get(info.full_path)
             if not gid:
@@ -274,7 +304,7 @@ class ScanTab(ctk.CTkFrame):
             if not iid:
                 continue
             vals = list(self._tree.item(iid, "values"))
-            vals[5] = gid          # "group" column index
+            vals[5] = gid
             self._tree.item(iid, values=vals, tags=("multipart",))
 
         unique_groups = len(set(groups.values()))
@@ -294,9 +324,21 @@ class ScanTab(ctk.CTkFrame):
             f"{info.size_mb:.2f}",
             info.modified.strftime("%Y-%m-%d %H:%M"),
             sha_short,
-            "",              # group — filled later by _apply_multipart
+            "",
             info.directory,
         ))
+        self._path_to_iid[info.full_path] = iid
+
+    def _insert_media_row(self, info: MediaDirInfo):
+        iid = self._tree.insert("", "end", values=(
+            f"📁  {info.name}",
+            "МЕДИА",
+            f"{info.size_mb:.2f}",
+            info.modified.strftime("%Y-%m-%d %H:%M"),
+            f"{info.media_count} файлов",
+            "—",
+            info.directory,
+        ), tags=("media_dir",))
         self._path_to_iid[info.full_path] = iid
 
     _sort_reverse: dict[str, bool] = {}
@@ -315,4 +357,13 @@ class ScanTab(ctk.CTkFrame):
     # ---------------------------------------------------------- public API
 
     def get_files(self) -> list[FileInfo]:
+        """Document files only (for DuplicatesTab, SummaryTab)."""
         return list(self._files)
+
+    def get_all_items(self) -> list[FileInfo | MediaDirInfo]:
+        """All items including media directories (for CatalogTab, StructureTab)."""
+        return list(self._files) + list(self._media_dirs)
+
+    def get_scan_root(self) -> str:
+        """Return the currently configured scan root directory."""
+        return self._dir_var.get().strip()
